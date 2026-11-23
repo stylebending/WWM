@@ -1,6 +1,6 @@
-# Windows Workspace Manager (WWM) for AutoHotkey v2
+# Windows Workspace Manager (WWM)
 
-A Hyprland/i3-inspired tiling and window-management setup that uses Windows 11's
+A **lightweight** Hyprland/i3-inspired tiling and window-management setup that uses Windows 11's
 **native virtual desktops** as its workspaces: no third-party workspace engine;
 it drives the desktops Windows already has.
 
