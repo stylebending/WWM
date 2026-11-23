@@ -1,0 +1,27 @@
+License notice
+==============
+
+Windows Workspace Manager
+-------------------------
+The Windows Workspace Manager source code in this repository (the AutoHotkey scripts and
+the native/FocusBridge C++ source) is licensed under the MIT License.
+See the LICENSE file.
+
+Third-party components
+----------------------
+
+VirtualDesktopAccessor
+~~~~~~~~~~~~~~~~~~~~~~
+VirtualDesktopAccessor is a separate project by Ciantic, licensed under the
+MIT License:
+https://github.com/Ciantic/VirtualDesktopAccessor
+
+This repository does not include or redistribute the VirtualDesktopAccessor
+DLL (binaries are git-ignored). Users download it themselves from the
+project's Releases page, as described in README.md.
+
+Windows shell interfaces
+~~~~~~~~~~~~~~~~~~~~~~~~
+native/FocusBridge uses undocumented Windows shell COM interfaces
+(IApplicationView / IApplicationViewCollection). These are interface
+definitions from Microsoft Windows; no Microsoft code is redistributed.
