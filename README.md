@@ -55,7 +55,7 @@ If the bridge is not present, the AHK script falls back to `WinActivate`; this f
 | `Win+Shift+1` ... `Win+Shift+0` | Move active window to workspace |
 | `Win+Ctrl+Left/Right` | Previous/next workspace |
 | `Win+Ctrl+N` | Create and switch to a workspace |
-| `Win+H/J/K/L` | Focus previous/down/up/next tile |
+| `Win+H/J/K` | Focus previous/down/up tile |
 | `Win+Alt+H` | Cycle focus back through history |
 | `Win+Shift+H/J/K/L` | Reorder focused tiled window |
 | `Win+Ctrl+H/J/K/L` | Snap active window left/bottom/top/right |
@@ -67,18 +67,23 @@ If the bridge is not present, the AHK script falls back to `WinActivate`; this f
 | `Win+N` | Notepad |
 | `Win+Q` | Close active window |
 | `Win+F` | Toggle maximize |
-| `Win+Alt+L` | Lock the session (moved from `Win+L`) |
+| `Win+Alt+L` | Lock the session |
 | `Win+Ctrl+R` | Reload script |
 | `Win+Ctrl+Esc` | Exit manager |
 
-### Why `Win+L` can focus right now
+### `Win+L` is reserved by Windows
 
-The Windows lock screen is triggered in **userspace**, after the keyboard hook.
-AutoHotkey's low-level hook therefore sees the keystroke first, so a normal
-`#l::` hotkey (with `#UseHook`) suppresses the lock and runs the handler.
+`Win+L` cannot be reliably rebound from userspace. Winlogon handles the lock
+shortcut on a path that can win the race against the keyboard hook, so the
+`$#l::` focus-right hotkey will normally lock the session instead of moving
+focus. WWM therefore treats `Win+L` as reserved: use `Win+H/J/K` for
+left/down/up focus, and `Win+Alt+L` to lock explicitly.
 
-Locking moved to `Win+Alt+L`. If you prefer the system lock on `Win+L`, delete
-the `#l::Focus_Directional("right")` line and restore `#!l` as focus-right.
+A best-effort opt-in exists for machines where the hook is not enough: set
+`WWM_DisableWinLock := true` in `config/settings.ahk`. WWM then writes a
+per-user policy that removes the OS `Win+L` binding and restores it on exit.
+This can help on some Windows builds, but it is not guaranteed — treat `Win+L`
+as reserved either way.
 
 ## Tiling behaviour
 
