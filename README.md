@@ -1,10 +1,12 @@
-# Windows Workspace Manager (WWM) — AutoHotkey v2
+# Windows Workspace Manager (WWM) for AutoHotkey v2
 
-A lightweight Hyprland/i3-inspired Windows 11 workspace and window-management setup.
+A Hyprland/i3-inspired tiling and window-management setup that uses Windows 11's
+**native virtual desktops** as its workspaces: no third-party workspace engine;
+it drives the desktops Windows already has.
 
 ## Included
 
-- Virtual desktop switching and moving windows using Ciantic's `VirtualDesktopAccessor.dll`.
+- Switches and moves windows across Windows' **native virtual desktops** using Ciantic's `VirtualDesktopAccessor.dll`.
 - Per-desktop focus history for `Win+Alt+H` cycling.
 - Optional native `FocusBridge.dll` source implementing the foreground-focus COM workaround described in Ciantic/VirtualDesktopAccessor issue #101.
 - Gapless automatic tiling: fullscreen for one window, master + stack for more, grouped per monitor.
@@ -82,7 +84,7 @@ left/down/up focus, and `Win+Alt+L` to lock explicitly.
 A best-effort opt-in exists for machines where the hook is not enough: set
 `WWM_DisableWinLock := true` in `config/settings.ahk`. WWM then writes a
 per-user policy that removes the OS `Win+L` binding and restores it on exit.
-This can help on some Windows builds, but it is not guaranteed — treat `Win+L`
+This can help on some Windows builds, but it is not guaranteed; treat `Win+L`
 as reserved either way.
 
 ## Tiling behaviour
