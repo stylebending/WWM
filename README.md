@@ -1,7 +1,7 @@
 # Windows Workspace Manager (WWM)
 
-A **lightweight** Hyprland/i3-inspired tiling and window-management setup that uses Windows 11's
-**native virtual desktops** as its workspaces: no third-party workspace engine;
+A **lightweight** tiling window-management setup that uses Windows 11's
+**native virtual desktops** as its workspaces:
 it drives the desktops Windows already has.
 
 ## Included
