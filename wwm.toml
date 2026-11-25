@@ -1,0 +1,85 @@
+# Windows Workspace Manager (native) configuration.
+# This file is optional; missing entries fall back to the defaults below.
+
+[tiling]
+master_ratio = 0.5          # master column width as a fraction (0.5 = 50/50)
+tile_interval_ms = 250      # how often the tiler re-checks the desktop
+min_tile_width = 160
+min_tile_height = 120
+
+[float]
+# Executable names (case-insensitive) that are never tiled.
+process_names = [
+    "ApplicationFrameHost.exe",
+    "ShellExperienceHost.exe",
+    "SearchHost.exe",
+    "StartMenuExperienceHost.exe",
+    "TextInputHost.exe",
+]
+# Window classes that are never tiled.
+class_names = [
+    "Shell_TrayWnd",
+    "Shell_SecondaryTrayWnd",
+    "Progman",
+    "WorkerW",
+    "Windows.UI.Core.CoreWindow",
+    "XamlExplorerHostIslandWindow",
+    "MultitaskingViewFrame",
+    "ForegroundStaging",
+]
+
+[overlay]
+duration_ms = 1100
+
+# Keybinds. Format: "mods+key" = "action".
+# Mods: win, shift, ctrl, alt. Key: a letter/digit, or space/escape/tab/enter.
+[keybinds]
+"win+1" = "switch 1"
+"win+2" = "switch 2"
+"win+3" = "switch 3"
+"win+4" = "switch 4"
+"win+5" = "switch 5"
+"win+6" = "switch 6"
+"win+7" = "switch 7"
+"win+8" = "switch 8"
+"win+9" = "switch 9"
+"win+0" = "switch 10"
+
+"win+shift+1" = "move 1"
+"win+shift+2" = "move 2"
+"win+shift+3" = "move 3"
+"win+shift+4" = "move 4"
+"win+shift+5" = "move 5"
+"win+shift+6" = "move 6"
+"win+shift+7" = "move 7"
+"win+shift+8" = "move 8"
+"win+shift+9" = "move 9"
+"win+shift+0" = "move 10"
+
+"win+h" = "focus left"
+"win+j" = "focus down"
+"win+k" = "focus up"
+"win+l" = "focus right"
+
+"win+shift+h" = "reorder left"
+"win+shift+j" = "reorder down"
+"win+shift+k" = "reorder up"
+"win+shift+l" = "reorder right"
+
+"win+ctrl+h" = "snap left"
+"win+ctrl+j" = "snap down"
+"win+ctrl+k" = "snap up"
+"win+ctrl+l" = "snap right"
+
+"win+shift+space" = "float"
+"win+space" = "overlay"
+"win+q" = "close"
+"win+f" = "maximize"
+"win+ctrl+escape" = "quit"
+
+# App launchers. "run <command>" launches via the shell (PATH or full path).
+"win+b" = "run brave.exe"
+"win+d" = "run emacs.exe"
+"win+e" = "run explorer.exe"
+"win+t" = "run wt.exe"
+"win+n" = "run notepad.exe"

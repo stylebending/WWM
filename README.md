@@ -1,142 +1,104 @@
 # Windows Workspace Manager (WWM)
 
-A **lightweight** tiling window-management setup that uses Windows 11's
-**native virtual desktops** as its workspaces:
-it drives the desktops Windows already has.
+A lightweight tiling window manager for **Windows 11 native virtual
+desktops**, written in Rust. It drives the virtual desktops Windows already has
+and tiles windows into a master + stack layout.
 
-## Included
-
-- Switches and moves windows across Windows' **native virtual desktops** using Ciantic's `VirtualDesktopAccessor.dll`.
-- Per-desktop focus history for `Win+Alt+H` cycling.
-- Optional native `FocusBridge.dll` source implementing the foreground-focus COM workaround described in Ciantic/VirtualDesktopAccessor issue #101.
-- Gapless automatic tiling: fullscreen for one window, master + stack for more, grouped per monitor.
-- Floating-window toggle and explicit snap zones.
-- Order-based focus navigation and keyboard-driven tile reordering.
-- Small numbered workspace overlay (no workspace names).
-- Brave, Explorer, Windows Terminal and Notepad launchers.
+No AutoHotkey, no runtime, no DLLs, just a single native executable (the
+virtual-desktop and focus COM is compiled in).
 
 ## Requirements
 
-- Windows 11 24H2 or newer (25H2 recommended).
-- AutoHotkey v2 x64.
-- Ciantic's current x64 `VirtualDesktopAccessor.dll`.
-- Optional: Visual Studio C++ Build Tools to compile `FocusBridge.dll`.
+- Windows 11 24H2 build 26100.2605 or newer (25H2 recommended), x64.
 
-Ciantic's README says the current DLL requires Windows 11 24H2 build 26100.2605 or newer and reports testing on 25H2 build 26200.8117. Download the DLL from the repository's Releases page:
-https://github.com/Ciantic/VirtualDesktopAccessor/releases
+## Build
 
-Put `VirtualDesktopAccessor.dll` beside `WWM.ahk`.
+```bat
+cd native\wwm
+cargo build --release
+```
 
-## Build the native focus bridge
-
-The COM bridge uses undocumented Windows shell interfaces (`IApplicationView` and `IApplicationViewCollection`). The relevant interface ABI can change with Windows updates.
-
-1. Open **x64 Native Tools Command Prompt for Visual Studio**.
-2. `cd` into `WWM\native\FocusBridge`.
-3. Run `build-x64.bat`.
-4. The script copies `FocusBridge.dll` into the WWM root.
-
-The bridge implements the focus sequence documented in issue #101:
-`PrepareWindowFocus(hwnd)` -> `GoToDesktopNumber(target)` -> `CommitWindowFocus()`.
-
-If the bridge is not present, the AHK script falls back to `WinActivate`; this fallback may still produce the taskbar-flashing behaviour. Do not treat the fallback as equivalent to the COM bridge.
+The executable is `native\wwm\target\release\wwm.exe` (~450 KB).
 
 ## Install
 
-1. Extract the whole folder to a stable path, e.g. `C:\Tools\WWM`.
-2. Download the current x64 `VirtualDesktopAccessor.dll` from Ciantic's Releases page and place it in the root folder.
-3. (Recommended) Build `FocusBridge.dll` using the steps above.
-4. Double-click `WWM.ahk`.
-5. To start it at login, press `Win+R`, run `shell:startup`, and put a shortcut to `WWM.ahk` there.
+Copy `wwm.exe` wherever you like, optionally with a `wwm.toml` beside it.
+That's it, no other files are needed.
 
-## Keybindings
+Run `wwm.exe` (double-click or from a terminal).
+
+## Run at startup
+
+1. Press `Win+R`, type `shell:startup`, and press Enter (this opens the
+   Startup folder).
+2. Drop a shortcut to `wwm.exe` into that folder.
+
+It will start automatically when you log in. Keep `wwm.toml` next to the
+executable (or anywhere above it) so the config is found. If you later need
+WWM to manage elevated windows, use Task Scheduler with "Run with highest
+privileges" instead of the Startup folder.
+
+## Keybindings (defaults)
 
 | Shortcut | Action |
 |---|---|
-| `Win+1` ... `Win+9`, `Win+0` | Switch to workspace 1 ... 10 |
-| `Win+Shift+1` ... `Win+Shift+0` | Move active window to workspace |
-| `Win+Ctrl+Left/Right` | Previous/next workspace |
-| `Win+Ctrl+N` | Create and switch to a workspace |
-| `Win+H/J/K` | Focus previous/down/up tile |
-| `Win+Alt+H` | Cycle focus back through history |
-| `Win+Shift+H/J/K/L` | Reorder focused tiled window |
-| `Win+Ctrl+H/J/K/L` | Snap active window left/bottom/top/right |
-| `Win+Shift+Space` | Toggle floating/tiled for active window |
-| `Win+Space` / `Win+Tab` | Show workspace overlay |
-| `Win+B` | Brave |
-| `Win+E` | Explorer |
-| `Win+T` | Windows Terminal |
-| `Win+N` | Notepad |
-| `Win+Q` | Close active window |
-| `Win+F` | Toggle maximize |
-| `Win+Alt+L` | Lock the session |
-| `Win+Ctrl+R` | Reload script |
-| `Win+Ctrl+Esc` | Exit manager |
+| `Win+1..9`, `Win+0` | Switch to workspace 1..10 (creates it if missing) |
+| `Win+Shift+1..9`, `Win+Shift+0` | Move the focused window to a workspace |
+| `Win+H` / `Win+J` / `Win+K` / `Win+L` | Focus previous / down / up / next tile |
+| `Win+Shift+H/J/K/L` | Reorder the focused tile |
+| `Win+Ctrl+H/J/K/L` | Snap the focused window left/right/top/bottom |
+| `Win+Shift+Space` | Toggle the focused window floating/tiled |
+| `Win+Space` | Show the workspace overlay |
+| `Win+Q` | Close the focused window |
+| `Win+F` | Toggle maximize/restore |
+| `Win+B` / `Win+E` / `Win+T` / `Win+N` | Launch Brave / Explorer / Terminal / Notepad |
+| `Win+Ctrl+Esc` | Quit |
 
-### `Win+L` is reserved by Windows
+All keybindings are configurable (see below).
 
-`Win+L` cannot be reliably rebound from userspace. Winlogon handles the lock
-shortcut on a path that can win the race against the keyboard hook, so the
-`$#l::` focus-right hotkey will normally lock the session instead of moving
-focus. WWM therefore treats `Win+L` as reserved: use `Win+H/J/K` for
-left/down/up focus, and `Win+Alt+L` to lock explicitly.
+## Configuration
 
-A best-effort opt-in exists for machines where the hook is not enough: set
-`WWM_DisableWinLock := true` in `config/settings.ahk`. WWM then writes a
-per-user policy that removes the OS `Win+L` binding and restores it on exit.
-This can help on some Windows builds, but it is not guaranteed; treat `Win+L`
-as reserved either way.
+`wwm.toml` beside the executable (or anywhere within 6 levels above it). All
+sections are optional; missing entries use the defaults baked into the binary.
+
+```toml
+[tiling]
+master_ratio = 0.5          # master column width fraction
+tile_interval_ms = 250      # tiler poll interval
+min_tile_width = 160
+min_tile_height = 120
+
+[float]
+process_names = ["ApplicationFrameHost.exe", "..."]
+
+[overlay]
+duration_ms = 1100
+
+[keybinds]
+"win+1" = "switch 1"
+"win+h" = "focus left"
+"win+b" = "run brave.exe"
+```
+
+Keybind actions: `switch N`, `move N`, `focus <dir>`, `reorder <dir>`,
+`snap <dir>`, `float`, `overlay`, `close`, `maximize`, `quit`, and
+`run <command>` (any PATH executable or full path).
 
 ## Tiling behaviour
 
-- **One window is truly maximized** (the same state as clicking the maximize
-button); **two or more** split into a master column plus a stack, 50/50 by
-default. Tiles use the monitor work area, so a visible taskbar is never
-overlapped (with an auto-hiding taskbar the work area is the full monitor).
-- Completely gapless. Windows' invisible resize border is measured once per
-window (`DWMWA_EXTENDED_FRAME_BOUNDS`) and the classic window rect is expanded
-by that border, so the visible frame lands exactly on the tile.
-- A genuine borderless-fullscreen app (`WS_POPUP` without `WS_CAPTION`,
-covering its monitor) is left alone. Being monitor-sized is NOT fullscreen;
-the tiler owns the windows it has positioned.
-- When a second window arrives on the same monitor, maximized windows are
-restored so the monitor can split into master + stack.
+- **One window** on a monitor is maximized.
+- **Two or more** split into a master column (left) plus a stack (right),
+  using the monitor work area (a visible taskbar is never overlapped).
+- Genuine borderless-fullscreen apps (`WS_POPUP` without `WS_CAPTION`) and
+  floating windows are left alone.
 - Each monitor gets an independent layout.
-- The tiler runs on a slow timer, immediately on window create/destroy events,
-and once after a workspace switch.
-- `Win+Shift+Space` toggles the active window between floating and tiled.
-- `Win+Ctrl+H/J/K/L` applies a manual half-screen snap and marks it floating.
-- Focus navigation follows the tile order, so left and right are exact inverses
-and wrap around the monitor.
+- Tiling and focus run on a worker thread; the hotkey thread only performs the
+  desktop switch, so switching stays instant.
 
-### Workspace switching and the taskbar flash
+## Notes
 
-`VirtualDesktopAccessor`'s `GoToDesktopNumber` does **not** move the foreground
-window. After switching, `GetForegroundWindow()` still returns a window on the
-desktop you left (`IsWindowOnCurrentVirtualDesktop` = 0). Windows then shows
-nothing focused, the taskbar looks focused, and that stale window blinks for
-attention.
-
-For hotkey switches Windows Workspace Manager switches desktops first, then
-immediately focuses the incoming desktop's window with the COM focus bridge (which cannot
-prepare a window while it is still on another desktop). It retries briefly
-while the switch animation finishes and falls back to `WinActivate` with an
-immediate flash clear if the bridge is unavailable. A poll fallback covers
-shell-initiated switches (e.g. Win+Tab).
-
-## Customization
-
-Edit `config/settings.ahk`:
-- `WWM_MasterRatio`: master width fraction (default 0.5).
-- `WWM_TileIntervalMs`: window-change polling interval.
-- `A_BrowserPath`: set to `brave.exe` or a full path if Brave is not on PATH.
-
-There is intentionally no gap setting; tiling is always gapless.
-
-## Notes and limitations
-
-- The focus bridge relies on undocumented Windows shell COM interfaces. It is source code, not a prebuilt binary; build it locally and verify on your exact Windows build.
-- AutoHotkey window enumeration and the shell's cloaking rules can differ for UWP, elevated, and protected windows.
-- If an application runs elevated, run Windows Workspace Manager at the same integrity level for window manipulation to work consistently.
-- The first pass is a practical floating-window tiler, not a full compositor: no animations; borderless-fullscreen windows are left untouched, and some special windows are excluded.
-- Desktop numbering is zero-based in the DLL and one-based in the hotkeys/UI.
+- Virtual-desktop access uses the [`winvd`](https://crates.io/crates/winvd)
+  crate (MIT), compiled into the executable.
+- Focus uses the undocumented `IApplicationView::SetFocus` COM interface
+  directly, with a `SetForegroundWindow` fallback.
+- If an application runs elevated, run WWM at the same integrity level.

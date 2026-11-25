@@ -1,20 +1,5 @@
-# Build artifacts (rebuilt locally from source)
-*.dll
-*.obj
-*.lib
-*.exp
-*.pdb
-*.ilk
-*.idb
-*.ipdb
-*.iobj
+# Runtime log (written beside the executable)
+wwm.log
 
-# Visual Studio / MSBuild
-.vs/
-x64/
-Debug/
-Release/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
+# Rust build artifacts
+native/wwm/target/
