@@ -238,11 +238,13 @@ Focus_MoveInOrder(order, active, direction) {
     if !idx
         return false
 
-    ; left/up = previous tile, right/down = next tile, clamped at the ends.
+    ; left/up = previous tile, right/down = next tile, wrapping at the ends.
     step := (direction = "left" || direction = "up") ? -1 : 1
     target := idx + step
-    if target < 1 || target > order.Length
-        target := Mod(idx - 1 + step, order.Length) + 1 ; wrap, Hyprland-style
+    if target < 1
+        target := order.Length
+    else if target > order.Length
+        target := 1
     if target = idx
         return true
     return Focus_Activate(order[target])

@@ -78,8 +78,11 @@ VD_SwitchTo(index) {
     ; corrupted the bridge's global COM state.
     ok := false
     try {
-        ; VirtualDesktopAccessor returns an HRESULT: 0 means success.
-        ok := VD_Call("GoToDesktopNumber", "Int", index, "Int") = 0
+        ; VirtualDesktopAccessor returns a boolean-style int: 1 = success,
+        ; -1 = failure. Do NOT test for 0 (that is not the success value and
+        ; made every switch look like a failure, which is why the hotkey path
+        ; silently fell back to the slow desktop poll).
+        ok := VD_Call("GoToDesktopNumber", "Int", index, "Int") = 1
     }
     if !ok
         return false
@@ -94,7 +97,9 @@ VD_SwitchRelative(delta) {
     count := VD_Count()
     if count < 1
         return
-    target := Mod(VD_Current() + delta, count)
+    ; Add count first because AHK's Mod keeps the sign of the dividend, so a
+    ; negative desktop index would not wrap around to the last workspace.
+    target := Mod(VD_Current() + delta + count, count)
     VD_SwitchTo(target)
 }
 
@@ -122,8 +127,10 @@ VD_MoveWindowTo(hwnd, index) {
     try {
         if !VD_IsUsableWindow(hwnd)
             return false
-        ; 0 means success.
-        ok := VD_Call("MoveWindowToDesktopNumber", "Ptr", hwnd, "Int", index, "Int") = 0
+        ; 1 = success, -1 = failure. (The DLL does not return an HRESULT here;
+        ; testing = 0 made every move look like it failed, so the moved window
+        ; was never tiled on its new desktop until the user switched to it.)
+        ok := VD_Call("MoveWindowToDesktopNumber", "Ptr", hwnd, "Int", index, "Int") = 1
         if ok {
             ; The window now belongs to the target desktop. Forget its old slot
             ; so the target desktop's order picks it up cleanly, then re-tile
@@ -131,8 +138,13 @@ VD_MoveWindowTo(hwnd, index) {
             ; destination desktop (it gained one).
             Tiling_ForgetWindow(hwnd)
             Tiling_TileCurrent(true)
-            if index != VD_Current()
+            if index != VD_Current() {
                 Tiling_TileDesktop(index, true)
+                ; Safety net: if a future DLL build ever reports the old
+                ; desktop for a moment after the move, retile the destination
+                ; shortly afterwards so the moved window does not stay floating.
+                Tiling_ScheduleDesktopRetile(index)
+            }
         }
         return ok
     } catch {

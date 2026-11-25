@@ -16,6 +16,7 @@ global WWM_TileOrder := Map()
 global WWM_TilingBusy := false
 global WWM_TilingSuspended := false
 global WWM_LastTiledDesktop := -1
+global WWM_ShellHookMsg := 0
 
 ; Windows this tiler has positioned itself. A tiled window that fills its
 ; monitor must NOT be mistaken for a user's fullscreen app, otherwise it gets
@@ -26,6 +27,73 @@ Tiling_Init() {
     global WWM_AutoTileEnabled, WWM_TileIntervalMs
     if WWM_AutoTileEnabled
         SetTimer(Tiling_TileCurrent, WWM_TileIntervalMs)
+    Tiling_InitShellHook()
+}
+
+; Asks the shell to notify us the moment a top-level window is created or
+; destroyed. This makes newly launched programs get tiled immediately instead
+; of waiting for the next slow poll tick.
+Tiling_InitShellHook() {
+    global WWM_ShellHookMsg
+    try {
+        WWM_ShellHookMsg := DllCall("RegisterWindowMessage", "Str", "SHELLHOOK", "UInt")
+        if !WWM_ShellHookMsg
+            return
+        DllCall("RegisterShellHookWindow", "Ptr", A_ScriptHwnd)
+        OnMessage(WWM_ShellHookMsg, Tiling_ShellHook)
+    }
+}
+
+Tiling_ShellHook(wParam, lParam, msg, hwnd) {
+    ; HSHELL_WINDOWCREATED = 1, HSHELL_WINDOWDESTROYED = 2. A freshly created
+    ; window is often not visible or titled yet, so retile a few times over the
+    ; next half second rather than exactly once.
+    ;
+    ; This callback runs for every top-level window event, so it must never
+    ; throw: one bad hwnd would otherwise pop an error dialog on every event.
+    try {
+        if wParam = 1 {
+            Tiling_ScheduleRetile()
+        } else if wParam = 2 {
+            ; Drop a closed window from tile order / floating state immediately
+            ; so stale hwnds do not linger in the layout maps.
+            Tiling_ForgetWindow(lParam)
+            Tiling_ScheduleRetile()
+        }
+    }
+}
+
+; Re-tiles the current desktop a few times, spaced out to catch windows that
+; only become visible/titled (and therefore eligible) a moment after creation.
+Tiling_ScheduleRetile(force := false) {
+    Tiling_RetileArmCurrent(force, [40, 180, 500])
+}
+
+Tiling_RetileArmCurrent(force, delays) {
+    if !delays.Length
+        return
+    SetTimer(Tiling_RetileFireCurrent.Bind(force, delays), -delays.RemoveAt(1))
+}
+
+Tiling_RetileFireCurrent(force, delays) {
+    try Tiling_TileCurrent(force)
+    Tiling_RetileArmCurrent(force, delays)
+}
+
+; Re-tiles a specific desktop a couple of times after a window was moved to it.
+Tiling_ScheduleDesktopRetile(desktop) {
+    Tiling_RetileArmDesktop(desktop, [200, 600])
+}
+
+Tiling_RetileArmDesktop(desktop, delays) {
+    if !delays.Length
+        return
+    SetTimer(Tiling_RetileFireDesktop.Bind(desktop, delays), -delays.RemoveAt(1))
+}
+
+Tiling_RetileFireDesktop(desktop, delays) {
+    try Tiling_TileDesktop(desktop, true)
+    Tiling_RetileArmDesktop(desktop, delays)
 }
 
 Tiling_IsWindowOnCurrentDesktop(hwnd) {
@@ -119,19 +187,24 @@ Tiling_TileDesktop(desktop, force := false) {
 
         for monitor, windows in byMonitor {
             ordered := Tiling_ApplyOrder(desktop, monitor, windows)
-            ; A single maximized window is the user explicitly asking for
-            ; fullscreen, so leave it alone. With two or more windows on the
-            ; monitor, however, maximized windows must participate in the split.
-            if ordered.Length = 1 && Tiling_IsMaximized(ordered[1])
+            if ordered.Length = 1 {
+                ; A single tiled window is truly maximized (the same state as
+                ; clicking the maximize button), not merely resized to the
+                ; monitor bounds. Maximizing gives the correct taskbar-aware
+                ; work area and the proper restore/maximize button state.
+                Tiling_MaximizeSingle(ordered[1])
                 continue
+            }
+            ; With two or more windows on the monitor, maximized windows must
+            ; participate in the split, so restore them before laying out the
+            ; master/stack columns.
             for hwnd in ordered {
                 if Tiling_IsMaximized(hwnd)
                     WinRestore("ahk_id " hwnd)
             }
-            ; Tile to the full monitor, not the work area. The taskbar is a
-            ; separate always-on-top window; leaving the work area reserved for
-            ; it just produces a permanent gap along that edge.
-            MonitorGet(monitor, &left, &top, &right, &bottom)
+            ; Tile to the monitor work area so a visible taskbar is never
+            ; overlapped. (With auto-hide, the work area is the full monitor.)
+            MonitorGetWorkArea(monitor, &left, &top, &right, &bottom)
             Tiling_LayoutMasterStack(ordered, left, top, right, bottom)
         }
         WWM_LastTiledDesktop := desktop
@@ -174,6 +247,16 @@ Tiling_IsMaximized(hwnd) {
     try return WinGetMinMax("ahk_id " hwnd) = 1
     catch
         return false
+}
+
+; Puts a single-window monitor into the real maximized state (Win+Up / the
+; maximize caption button), rather than only resizing it to the monitor bounds.
+Tiling_MaximizeSingle(hwnd) {
+    global WWM_TilerOwned
+    if !Tiling_IsMaximized(hwnd) {
+        try WinMaximize("ahk_id " hwnd)
+    }
+    WWM_TilerOwned[hwnd] := true
 }
 
 Tiling_MonitorForRect(x, y, w, h) {
@@ -376,8 +459,13 @@ Tiling_ForgetWindow(hwnd) {
             }
         }
     }
-    WWM_FloatingWindows.Delete(hwnd)
-    WWM_TilerOwned.Delete(hwnd)
+    ; Map.Delete throws if the key is absent, and Tiling_ForgetWindow is also
+    ; called from the shell destroy hook for windows that were never floating
+    ; or tiled, so only delete keys that exist.
+    if WWM_FloatingWindows.Has(hwnd)
+        WWM_FloatingWindows.Delete(hwnd)
+    if WWM_TilerOwned.Has(hwnd)
+        WWM_TilerOwned.Delete(hwnd)
 }
 
 Tiling_MoveFocused(direction) {
@@ -443,7 +531,8 @@ Tiling_SnapActive(direction) {
     if !hwnd || Tiling_IsExcluded(hwnd)
         return
     monitor := Tiling_MonitorForWindow(hwnd)
-    MonitorGet(monitor, &l, &t, &r, &b)
+    ; Snap within the work area so a visible taskbar is not overlapped.
+    MonitorGetWorkArea(monitor, &l, &t, &r, &b)
     midX := l + Round((r - l) / 2)
     midY := t + Round((b - t) / 2)
     ; Snapped windows float until toggled back, matching i3's floating scratchpad.

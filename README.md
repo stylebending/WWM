@@ -89,21 +89,21 @@ as reserved either way.
 
 ## Tiling behaviour
 
-- **One window fills the monitor** (Hyprland-style fullscreen); **two or more**
-split into a master column plus a stack, 50/50 by default. Tiles use the full
-monitor bounds, not the work area, so there is never a reserved taskbar gap.
+- **One window is truly maximized** (the same state as clicking the maximize
+button); **two or more** split into a master column plus a stack, 50/50 by
+default. Tiles use the monitor work area, so a visible taskbar is never
+overlapped (with an auto-hiding taskbar the work area is the full monitor).
 - Completely gapless. Windows' invisible resize border is measured once per
 window (`DWMWA_EXTENDED_FRAME_BOUNDS`) and the classic window rect is expanded
 by that border, so the visible frame lands exactly on the tile.
 - A genuine borderless-fullscreen app (`WS_POPUP` without `WS_CAPTION`,
-covering its monitor) is left alone, as is any maximized window. Being
-monitor-sized is NOT fullscreen; a single-window tile fills the monitor by
-design.
-- A single maximized window is left alone (treated as fullscreen) rather than
-immediately restored. When a second window arrives on the same monitor,
-maximized windows are restored so the monitor can split.
+covering its monitor) is left alone. Being monitor-sized is NOT fullscreen;
+the tiler owns the windows it has positioned.
+- When a second window arrives on the same monitor, maximized windows are
+restored so the monitor can split into master + stack.
 - Each monitor gets an independent layout.
-- The tiler runs on a slow timer, and once after a workspace switch.
+- The tiler runs on a slow timer, immediately on window create/destroy events,
+and once after a workspace switch.
 - `Win+Shift+Space` toggles the active window between floating and tiled.
 - `Win+Ctrl+H/J/K/L` applies a manual half-screen snap and marks it floating.
 - Focus navigation follows the tile order, so left and right are exact inverses
