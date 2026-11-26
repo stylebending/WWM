@@ -17,7 +17,7 @@ mod tiling;
 mod vda;
 
 use std::ffi::c_void;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use log::info;
@@ -56,21 +56,32 @@ fn main() {
     let keybinds = config.keybinds.clone();
     let overlay_ms = config.overlay_ms;
 
+    // Serializes desktop create/switch/move/remove between the hotkey thread
+    // and the tiler worker so indices can't shift mid-operation.
+    let desktop_lock = Arc::new(Mutex::new(()));
+
     // The worker owns tiling + focus/flash-clearing. The main thread only runs
     // the keyboard hook and the actual desktop switch, so switching is instant.
     let (worker_tx, worker_rx) = mpsc::channel::<Command>();
     let worker_vd = vd.clone();
-    std::thread::spawn(move || worker(worker_vd, worker_rx, config));
+    let worker_lock = desktop_lock.clone();
+    std::thread::spawn(move || worker(worker_vd, worker_rx, config, worker_lock));
 
-    hook::run((*vd).clone(), worker_tx, keybinds, overlay_ms);
+    hook::run((*vd).clone(), worker_tx, keybinds, overlay_ms, desktop_lock);
 }
 
-fn worker(vd: Arc<VirtualDesktopAccessor>, rx: mpsc::Receiver<Command>, config: config::Config) {
+fn worker(
+    vd: Arc<VirtualDesktopAccessor>,
+    rx: mpsc::Receiver<Command>,
+    config: config::Config,
+    desktop_lock: Arc<Mutex<()>>,
+) {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     }
 
-    let mut tiler = tiling::Tiler::new((*vd).clone(), &config);
+    let mut tiler = tiling::Tiler::new((*vd).clone(), &config, desktop_lock);
+    tiler.tile_all();
     let focus = FocusManager::new();
 
     let tile_interval = Duration::from_millis(tiler.interval_ms());
@@ -83,14 +94,19 @@ fn worker(vd: Arc<VirtualDesktopAccessor>, rx: mpsc::Receiver<Command>, config: 
 
         if now.duration_since(last_tile) >= tile_interval {
             tiler.tile_current();
+            tiler.prune_empty_desktops();
             last_tile = now;
         }
 
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
                 Command::FocusAfterSwitch => {
+                    // Tile the new desktop immediately instead of waiting for
+                    // the next tile poll.
+                    tiler.tile_current();
+                    last_tile = Instant::now();
                     focus.clear_all_flashes();
-                    focus_until = Some(now + focus_timeout);
+                    focus_until = Some(Instant::now() + focus_timeout);
                 }
                 Command::Focus(dir) => {
                     focus_directional(&tiler, &focus, &vd, dir);

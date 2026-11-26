@@ -1,7 +1,7 @@
 # Windows Workspace Manager (WWM)
 
 A lightweight tiling window manager for **Windows 11 native virtual
-desktops**, written in Rust. It drives the virtual desktops Windows already has
+desktops**. It drives the virtual desktops Windows already has
 and tiles windows into a master + stack layout.
 
 ## Requirements
@@ -15,11 +15,11 @@ cd native\wwm
 cargo build --release
 ```
 
-The executable is `native\wwm\target\release\wwm.exe` (~450 KB).
+The executable is `native\wwm\target\release\wwm.exe` (~400 KB).
 
 ## Install
 
-Copy `wwm.exe` wherever you like, optionally with a `wwm.toml` beside it.
+Copy `wwm.exe` that you either built or downloaded to wherever you like, optionally with a `wwm.toml` beside it.
 That's it, no other files are needed.
 
 Run `wwm.exe` (double-click or from a terminal).
@@ -40,7 +40,7 @@ privileges" instead of the Startup folder.
 | Shortcut | Action |
 |---|---|
 | `Win+1..9`, `Win+0` | Switch to workspace 1..10 (creates it if missing) |
-| `Win+Shift+1..9`, `Win+Shift+0` | Move the focused window to a workspace |
+| `Win+Shift+1..9`, `Win+Shift+0` | Move the focused window to a workspace (creates it if missing) |
 | `Win+H` / `Win+J` / `Win+K` / `Win+L` | Focus previous / down / up / next tile |
 | `Win+Shift+H/J/K/L` | Reorder the focused tile |
 | `Win+Ctrl+H/J/K/L` | Snap the focused window left/right/top/bottom |
@@ -64,6 +64,8 @@ master_ratio = 0.5          # master column width fraction
 tile_interval_ms = 250      # tiler poll interval
 min_tile_width = 160
 min_tile_height = 120
+gap = 0                     # px gap around/between tiled windows
+default_mode = "tile"       # "tile" (default) or "float"
 
 [float]
 process_names = ["ApplicationFrameHost.exe", "..."]
@@ -79,13 +81,20 @@ duration_ms = 1100
 
 Keybind actions: `switch N`, `move N`, `focus <dir>`, `reorder <dir>`,
 `snap <dir>`, `float`, `overlay`, `close`, `maximize`, `quit`, and
-`run <command>` (any PATH executable or full path).
+`run <command>` (a PATH executable, an App Paths entry such as
+`brave.exe`, or a full path).
 
 ## Tiling behaviour
 
-- **One window** on a monitor is maximized.
+- New windows are tiled by default; set `[tiling] default_mode = "float"` to
+  make them float by default (`Win+Shift+Space` still toggles either way).
+- **One window** on a monitor is maximized when `gap = 0`; with a gap it is
+  inset from the work area by that many pixels.
 - **Two or more** split into a master column (left) plus a stack (right),
   using the monitor work area (a visible taskbar is never overlapped).
+- `gap` controls both the outer margin and the gap between tiles (0 = gapless).
+- Empty non-current workspaces are deleted automatically; the current
+  workspace is kept so you can still launch a window into it.
 - Genuine borderless-fullscreen apps (`WS_POPUP` without `WS_CAPTION`) and
   floating windows are left alone.
 - Each monitor gets an independent layout.

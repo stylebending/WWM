@@ -43,6 +43,8 @@ pub struct Config {
     pub tile_interval_ms: u64,
     pub min_tile_width: i32,
     pub min_tile_height: i32,
+    pub gap: i32,
+    pub default_float: bool,
     pub overlay_ms: u64,
     pub float_process_names: Vec<String>,
     pub float_class_names: Vec<String>,
@@ -113,6 +115,8 @@ impl Config {
             tile_interval_ms: 250,
             min_tile_width: 160,
             min_tile_height: 120,
+            gap: 0,
+            default_float: false,
             overlay_ms: 1100,
             float_process_names: vec![
                 "applicationframehost.exe".into(),
@@ -141,6 +145,17 @@ impl Config {
             if let Some(v) = t.tile_interval_ms { self.tile_interval_ms = v; }
             if let Some(v) = t.min_tile_width { self.min_tile_width = v; }
             if let Some(v) = t.min_tile_height { self.min_tile_height = v; }
+            if let Some(v) = t.gap { self.gap = v.max(0); }
+            if let Some(v) = t.default_mode {
+                self.default_float = match v.to_ascii_lowercase().as_str() {
+                    "float" | "floating" => true,
+                    "tile" | "tiled" | "tiling" => false,
+                    _ => {
+                        debug!("ignoring unknown tiling.default_mode {v}");
+                        self.default_float
+                    }
+                };
+            }
         }
         if let Some(f) = raw.float {
             if let Some(v) = f.process_names { self.float_process_names = v; }
@@ -174,6 +189,8 @@ struct RawTiling {
     tile_interval_ms: Option<u64>,
     min_tile_width: Option<i32>,
     min_tile_height: Option<i32>,
+    gap: Option<i32>,
+    default_mode: Option<String>,
 }
 
 #[derive(Deserialize)]

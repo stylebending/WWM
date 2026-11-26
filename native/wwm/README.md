@@ -8,7 +8,10 @@ the `winvd` crate and hand-written `IApplicationView` bindings.
 
 - Virtual desktops: switch / move / create via `winvd` (no DLL).
 - `WH_KEYBOARD_LL` keyboard hook (required to grab `Win+1..0`).
-- Gapless master + stack tiling; single window -> maximized; work-area aware.
+- Master + stack tiling with configurable gaps; single window -> maximized
+  (or inset when gaps are set); work-area aware.
+- Default tiling or floating is configurable; empty non-current desktops are
+  auto-deleted.
 - Directional focus, reorder, snap, float toggle, workspace overlay.
 - Configurable keybindings and app launchers (`wwm.toml`).
 - Focus/flash handling after a switch (inline `IApplicationView::SetFocus`,
@@ -22,7 +25,7 @@ the `winvd` crate and hand-written `IApplicationView` bindings.
 cargo build --release
 ```
 
-The executable is `target\release\wwm.exe` (~450 KB, no runtime).
+The executable is `target\release\wwm.exe` (~400 KB, no runtime).
 
 ## Run
 

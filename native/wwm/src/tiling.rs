@@ -1,14 +1,16 @@
-//! Gapless master + stack tiler.
+//! Master + stack tiler.
 //!
-//! * 1 tiled window on a monitor -> maximized.
+//! * 1 tiled window on a monitor -> maximized (or inset when `gap > 0`).
 //! * 2+ tiled windows -> master column on the left, stack column on the right.
+//! * Configurable outer/inner gaps.
 //! * Sizes use `DWMWA_EXTENDED_FRAME_BOUNDS` so Windows' invisible resize
-//!   borders don't produce gaps between neighbours.
+//!   borders don't produce unintended gaps between neighbours.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
+use std::sync::{Arc, Mutex};
 
-use log::debug;
+use log::{debug, info};
 use windows::core::{BOOL, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
@@ -35,28 +37,40 @@ fn hwnd_from(h: isize) -> HWND {
 
 pub struct Tiler {
     vd: VirtualDesktopAccessor,
+    desktop_lock: Arc<Mutex<()>>,
     tile_order: HashMap<(i32, isize), Vec<isize>>,
     owned: HashSet<isize>,
     floating: HashSet<isize>,
+    tiled: HashSet<isize>,
     master_ratio: f64,
     min_tile_width: i32,
     min_tile_height: i32,
+    gap: i32,
     tile_interval_ms: u64,
+    default_float: bool,
     float_process_names: HashSet<String>,
     float_class_names: HashSet<String>,
 }
 
 impl Tiler {
-    pub fn new(vd: VirtualDesktopAccessor, config: &crate::config::Config) -> Self {
+    pub fn new(
+        vd: VirtualDesktopAccessor,
+        config: &crate::config::Config,
+        desktop_lock: Arc<Mutex<()>>,
+    ) -> Self {
         Self {
             vd,
+            desktop_lock,
             tile_order: HashMap::new(),
             owned: HashSet::new(),
             floating: HashSet::new(),
+            tiled: HashSet::new(),
             master_ratio: config.master_ratio,
             min_tile_width: config.min_tile_width,
             min_tile_height: config.min_tile_height,
+            gap: config.gap,
             tile_interval_ms: config.tile_interval_ms,
+            default_float: config.default_float,
             float_process_names: config
                 .float_process_names
                 .iter()
@@ -77,13 +91,63 @@ impl Tiler {
         debug!("tile pass took {}ms", start.elapsed().as_millis());
     }
 
+    /// Tiles every existing virtual desktop. Used once at startup so windows
+    /// on already-existing desktops don't have to wait until they're visited.
+    pub fn tile_all(&mut self) {
+        let count = self.vd.count();
+        for desktop in 0..count {
+            self.tile_desktop(desktop);
+        }
+    }
+
     pub fn interval_ms(&self) -> u64 {
         self.tile_interval_ms
+    }
+
+    fn is_floating(&self, id: isize) -> bool {
+        if self.tiled.contains(&id) {
+            false
+        } else if self.floating.contains(&id) {
+            true
+        } else {
+            self.default_float
+        }
     }
 
     /// Tiled windows on a desktop, in Z-order (what focus navigation follows).
     pub fn ordered_windows(&self, desktop: i32) -> Vec<isize> {
         self.collect_windows(desktop)
+    }
+
+    /// Deletes empty non-current virtual desktops. The current desktop is left
+    /// alone so the user always has a place to launch their next window.
+    pub fn prune_empty_desktops(&mut self) {
+        let _guard = self.desktop_lock.lock().unwrap();
+        loop {
+            let current = self.vd.current();
+            let count = self.vd.count();
+            if count <= 1 {
+                return;
+            }
+
+            let mut deleted = false;
+            for desktop in 0..count {
+                if desktop == current {
+                    continue;
+                }
+                if !self.desktop_has_windows(desktop)
+                    && self.vd.remove_desktop(desktop, current)
+                {
+                    info!("auto-deleted empty desktop {desktop}");
+                    deleted = true;
+                    break;
+                }
+            }
+
+            if !deleted {
+                return;
+            }
+        }
     }
 
     /// Moves the focused window one slot in the tile order (Win+Shift+H/J/K/L).
@@ -148,9 +212,11 @@ impl Tiler {
             return;
         }
         let id = hwnd.0 as isize;
-        if self.floating.contains(&id) {
+        if self.is_floating(id) {
             self.floating.remove(&id);
+            self.tiled.insert(id);
         } else {
+            self.tiled.remove(&id);
             self.floating.insert(id);
             // A maximized window can't be resized; restore it before floating.
             if self.is_maximized(hwnd) {
@@ -177,6 +243,7 @@ impl Tiler {
         let mid_x = work.left + (work.right - work.left) / 2;
         let mid_y = work.top + (work.bottom - work.top) / 2;
 
+        self.tiled.remove(&id);
         self.floating.insert(id);
         if self.is_maximized(hwnd) {
             unsafe {
@@ -194,6 +261,7 @@ impl Tiler {
     }
 
     fn tile_desktop(&mut self, desktop: i32) {
+        self.prune_stale_handles();
         let windows = self.collect_windows(desktop);
         debug!("tile desktop {desktop}: {} windows", windows.len());
         let by_monitor = self.group_by_monitor(&windows);
@@ -202,9 +270,16 @@ impl Tiler {
             let ordered = self.apply_order(desktop, monitor, wins);
 
             if ordered.len() == 1 {
-                // A single tiled window is truly maximized, like clicking the
-                // maximize button, rather than resized to the monitor bounds.
-                self.maximize_single(hwnd_from(ordered[0]));
+                let hwnd = hwnd_from(ordered[0]);
+                if self.gap > 0 {
+                    if let Some(work) = monitor_work_area(HMONITOR(monitor as *mut c_void)) {
+                        self.layout_single(hwnd, work);
+                    }
+                } else {
+                    // A single tiled window is truly maximized, like clicking the
+                    // maximize button, rather than resized to the monitor bounds.
+                    self.maximize_single(hwnd);
+                }
                 continue;
             }
 
@@ -225,24 +300,72 @@ impl Tiler {
     }
 
     fn collect_windows(&self, desktop: i32) -> Vec<isize> {
-        let mut hwnds: Vec<HWND> = Vec::new();
-        unsafe {
-            let _ = EnumWindows(Some(enum_proc), LPARAM(&mut hwnds as *mut Vec<HWND> as isize));
-        }
-
         let mut out = Vec::new();
-        for hwnd in hwnds {
+        for hwnd in self.all_windows() {
             let id = hwnd.0 as isize;
             if self.is_usable(hwnd)
                 && self.vd.window_desktop(id) == desktop
                 && !self.is_excluded(hwnd)
-                && !self.floating.contains(&id)
+                && !self.is_floating(id)
                 && !self.is_fullscreen(hwnd)
             {
                 out.push(id);
             }
         }
         out
+    }
+
+    fn desktop_has_windows(&self, desktop: i32) -> bool {
+        self.all_windows().into_iter().any(|hwnd| {
+            let id = hwnd.0 as isize;
+            self.is_real_window(hwnd) && self.vd.window_desktop(id) == desktop
+        })
+    }
+
+    /// A window that counts as a real app window (minimized windows count
+    /// too, unlike the tiler's usable-window check). System classes and tool
+    /// windows are ignored, but empty titles are not, so apps without a
+    /// visible title still keep their desktop alive.
+    fn is_real_window(&self, hwnd: HWND) -> bool {
+        if hwnd.0.is_null() {
+            return false;
+        }
+        unsafe {
+            if !IsWindow(Some(hwnd)).as_bool() || !IsWindowVisible(hwnd).as_bool() {
+                return false;
+            }
+        }
+        let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+        if ex_style & WS_EX_TOOLWINDOW.0 != 0 {
+            return false;
+        }
+        if let Some(class) = class_name(hwnd) {
+            if self.float_class_names.contains(&class.to_lowercase()) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn all_windows(&self) -> Vec<HWND> {
+        let mut hwnds: Vec<HWND> = Vec::new();
+        unsafe {
+            let _ = EnumWindows(Some(enum_proc), LPARAM(&mut hwnds as *mut Vec<HWND> as isize));
+        }
+        hwnds
+    }
+
+    /// Drop per-window state for handles that no longer exist, so a reused
+    /// HWND doesn't inherit an old float/tile override.
+    fn prune_stale_handles(&mut self) {
+        let live: HashSet<isize> = self
+            .all_windows()
+            .into_iter()
+            .map(|h| h.0 as isize)
+            .collect();
+        self.floating.retain(|h| live.contains(h));
+        self.tiled.retain(|h| live.contains(h));
+        self.owned.retain(|h| live.contains(h));
     }
 
     fn group_by_monitor(&self, windows: &[isize]) -> HashMap<isize, Vec<isize>> {
@@ -288,28 +411,65 @@ impl Tiler {
             return;
         }
 
-        let width = work.right - work.left;
-        let height = work.bottom - work.top;
-
         if count == 1 {
-            self.maximize_single(hwnd_from(windows[0]));
+            let hwnd = hwnd_from(windows[0]);
+            if self.gap > 0 {
+                self.layout_single(hwnd, work);
+            } else {
+                self.maximize_single(hwnd);
+            }
             return;
         }
 
-        let master_w = ((width as f64 * self.master_ratio).round() as i32)
-            .clamp(self.min_tile_width, width - self.min_tile_width);
-        let stack_x = work.left + master_w;
-        let stack_w = work.right - stack_x;
+        let gap = self.gap;
+        let area_left = work.left + gap;
+        let area_top = work.top + gap;
+        let area_right = work.right - gap;
+        let area_bottom = work.bottom - gap;
+        let area_w = area_right - area_left;
+        let area_h = area_bottom - area_top;
 
-        self.place(hwnd_from(windows[0]), work.left, work.top, master_w, height);
+        let max_master = area_w - gap - self.min_tile_width;
+        let master_w = if max_master < self.min_tile_width {
+            // Not enough room for a gap and two minimum-size tiles.
+            area_w / 2
+        } else {
+            (((area_w - gap) as f64 * self.master_ratio).round() as i32)
+                .clamp(self.min_tile_width, max_master)
+        };
+        let stack_x = area_left + master_w + gap;
+        let stack_w = area_right - stack_x;
+
+        self.place(hwnd_from(windows[0]), area_left, area_top, master_w, area_h);
 
         let stack_count = count - 1;
+        let total_gap = gap * (stack_count as i32 - 1);
+        let available = area_h - total_gap;
         for i in 0..stack_count {
-            let y1 = work.top + ((height as f64 * i as f64 / stack_count as f64).round() as i32);
-            let y2 =
-                work.top + ((height as f64 * (i + 1) as f64 / stack_count as f64).round() as i32);
+            let y1 = area_top
+                + ((available as f64 * i as f64 / stack_count as f64).round() as i32)
+                + gap * i as i32;
+            let y2 = area_top
+                + ((available as f64 * (i + 1) as f64 / stack_count as f64).round() as i32)
+                + gap * i as i32;
             self.place(hwnd_from(windows[i + 1]), stack_x, y1, stack_w, y2 - y1);
         }
+    }
+
+    fn layout_single(&mut self, hwnd: HWND, work: RECT) {
+        if self.is_maximized(hwnd) {
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_RESTORE);
+            }
+        }
+        let gap = self.gap;
+        self.place(
+            hwnd,
+            work.left + gap,
+            work.top + gap,
+            (work.right - work.left) - gap * 2,
+            (work.bottom - work.top) - gap * 2,
+        );
     }
 
     fn place(&mut self, hwnd: HWND, x: i32, y: i32, w: i32, h: i32) {

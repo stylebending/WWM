@@ -56,6 +56,10 @@ impl VirtualDesktopAccessor {
             .and_then(|d| d.get_index().map(|i| i as i32))
             .unwrap_or(-1)
     }
+
+    pub fn remove_desktop(&self, desktop: i32, fallback: i32) -> bool {
+        winvd::remove_desktop(desktop as u32, fallback as u32).is_ok()
+    }
 }
 
 fn hwnd058(hwnd: isize) -> HWND058 {

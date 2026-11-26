@@ -8,7 +8,7 @@
 //! loop stays instant.
 
 use std::cell::RefCell;
-use std::sync::mpsc::Sender;
+use std::sync::{mpsc::Sender, Arc, Mutex};
 
 use log::{debug, info};
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
@@ -19,9 +19,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetForegroundWindow, IsZoomed, PeekMessageW,
     PostMessageW, PostQuitMessage, SetWindowsHookExW, ShowWindow, TranslateMessage,
-    KBDLLHOOKSTRUCT, MSG, PM_REMOVE, SW_MAXIMIZE, SW_RESTORE, WH_KEYBOARD_LL, WM_CLOSE,
-    WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
+    KBDLLHOOKSTRUCT, MSG, PM_REMOVE, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNORMAL,
+    WH_KEYBOARD_LL, WM_CLOSE, WM_KEYDOWN, WM_QUIT, WM_SYSKEYDOWN,
 };
+
+use windows::core::{HSTRING, PCWSTR};
+use windows::Win32::UI::Shell::ShellExecuteW;
 
 use crate::commands::Command;
 use crate::config::{Action, Keybind, Mods};
@@ -34,6 +37,7 @@ thread_local! {
     static WORKER_TX: RefCell<Option<Sender<Command>>> = const { RefCell::new(None) };
     static OVERLAY: RefCell<Option<Overlay>> = const { RefCell::new(None) };
     static KEYBINDS: RefCell<Option<Vec<Keybind>>> = const { RefCell::new(None) };
+    static DESKTOP_LOCK: RefCell<Option<Arc<Mutex<()>>>> = const { RefCell::new(None) };
 }
 
 pub fn run(
@@ -41,11 +45,13 @@ pub fn run(
     worker_tx: Sender<Command>,
     keybinds: Vec<Keybind>,
     overlay_ms: u64,
+    desktop_lock: Arc<Mutex<()>>,
 ) {
     VDA.with(|c| *c.borrow_mut() = Some(vd));
     WORKER_TX.with(|c| *c.borrow_mut() = Some(worker_tx));
     OVERLAY.with(|c| *c.borrow_mut() = Overlay::new(overlay_ms));
     KEYBINDS.with(|c| *c.borrow_mut() = Some(keybinds));
+    DESKTOP_LOCK.with(|c| *c.borrow_mut() = Some(desktop_lock));
 
     let hook = unsafe {
         let module = GetModuleHandleW(None).ok().unwrap_or_default();
@@ -108,6 +114,12 @@ fn send_worker(cmd: Command) {
     });
 }
 
+fn with_desktop_lock<T>(f: impl FnOnce() -> T) -> T {
+    let lock = DESKTOP_LOCK.with(|c| c.borrow().as_ref().cloned().expect("desktop lock not set"));
+    let _guard = lock.lock().expect("desktop lock poisoned");
+    f()
+}
+
 fn dispatch(action: Action) {
     VDA.with(|c| {
         let vd = c.borrow();
@@ -118,27 +130,40 @@ fn dispatch(action: Action) {
 
         match action {
             Action::Switch(n) => {
-                // Win+N lands on workspace N+1; create missing desktops first.
-                while vd.count() <= n {
-                    let created = vd.create_desktop();
-                    if created < 0 {
-                        break;
+                with_desktop_lock(|| {
+                    // Win+N lands on workspace N+1; create missing desktops first.
+                    while vd.count() <= n {
+                        let created = vd.create_desktop();
+                        if created < 0 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(120));
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(120));
-                }
 
-                let ok = vd.go_to(n);
-                info!("switch to desktop {n} -> ok={ok}");
-                if ok {
-                    send_worker(Command::FocusAfterSwitch);
-                }
+                    let ok = vd.go_to(n);
+                    info!("switch to desktop {n} -> ok={ok}");
+                    if ok {
+                        send_worker(Command::FocusAfterSwitch);
+                    }
+                });
             }
             Action::Move(n) => {
-                let hwnd = unsafe { GetForegroundWindow() };
-                if !hwnd.0.is_null() {
-                    let ok = vd.move_window(hwnd.0 as isize, n);
-                    info!("move {hwnd:?} to desktop {n} -> ok={ok}");
-                }
+                with_desktop_lock(|| {
+                    // Moving to workspace N also creates it if it was pruned.
+                    while vd.count() <= n {
+                        let created = vd.create_desktop();
+                        if created < 0 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(120));
+                    }
+
+                    let hwnd = unsafe { GetForegroundWindow() };
+                    if !hwnd.0.is_null() {
+                        let ok = vd.move_window(hwnd.0 as isize, n);
+                        info!("move {hwnd:?} to desktop {n} -> ok={ok}");
+                    }
+                });
             }
             Action::Focus(dir) => send_worker(Command::Focus(dir)),
             Action::Reorder(dir) => send_worker(Command::Reorder(dir)),
@@ -176,10 +201,21 @@ fn dispatch(action: Action) {
                 info!("quit requested");
                 unsafe { PostQuitMessage(0) };
             }
-            Action::Run(cmd) => match std::process::Command::new(&cmd).spawn() {
-                Ok(_) => info!("launched {cmd}"),
-                Err(e) => info!("failed to launch {cmd}: {e}"),
-            },
+            Action::Run(cmd) => {
+                // ShellExecuteW resolves both PATH and the App Paths registry
+                // (e.g. brave.exe), unlike std::process::Command which only
+                // searches PATH and so fails for apps like Brave.
+                let wide = HSTRING::from(cmd.as_str());
+                let null = PCWSTR::null();
+                let hinst = unsafe {
+                    ShellExecuteW(None, null, &wide, null, null, SW_SHOWNORMAL)
+                };
+                if hinst.0 as isize > 32 {
+                    info!("launched {cmd}");
+                } else {
+                    info!("failed to launch {cmd}: ShellExecuteW returned {hinst:?}");
+                }
+            }
         }
     });
 }
