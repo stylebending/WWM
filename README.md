@@ -4,9 +4,6 @@ A lightweight tiling window manager for **Windows 11 native virtual
 desktops**, written in Rust. It drives the virtual desktops Windows already has
 and tiles windows into a master + stack layout.
 
-No AutoHotkey, no runtime, no DLLs, just a single native executable (the
-virtual-desktop and focus COM is compiled in).
-
 ## Requirements
 
 - Windows 11 24H2 build 26100.2605 or newer (25H2 recommended), x64.
