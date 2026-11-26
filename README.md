@@ -8,18 +8,9 @@ and tiles windows into a master + stack layout.
 
 - Windows 11 24H2 build 26100.2605 or newer (25H2 recommended), x64.
 
-## Build
-
-```bat
-cd native\wwm
-cargo build --release
-```
-
-The executable is `native\wwm\target\release\wwm.exe` (~400 KB).
-
 ## Install
 
-Copy `wwm.exe` that you either built or downloaded to wherever you like, optionally with a `wwm.toml` beside it.
+Download and extract `wwm.exe` (and optionally `wwm.toml`) from releases and copy it to wherever you like.
 That's it, no other files are needed.
 
 Run `wwm.exe` (double-click or from a terminal).
@@ -34,6 +25,15 @@ It will start automatically when you log in. Keep `wwm.toml` next to the
 executable (or anywhere above it) so the config is found. If you later need
 WWM to manage elevated windows, use Task Scheduler with "Run with highest
 privileges" instead of the Startup folder.
+
+## Build (optional)
+
+```bat
+cd native\wwm
+cargo build --release
+```
+
+The executable is `native\wwm\target\release\wwm.exe` (~400 KB).
 
 ## Keybindings (defaults)
 
